@@ -1,0 +1,51 @@
+/* styles.css */
+body {
+  background: radial-gradient(ellipse at top left, #1a002d, #000000) !important;
+  color: #ffffff;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+section.main > div {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 25px;
+  margin-top: 10px;
+  box-shadow: 0 0 20px rgba(123, 31, 255, 0.3);
+  animation: fadeIn 0.7s ease-in-out;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+  background: linear-gradient(to bottom, #16001f, #1a002d) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Sidebar widgets */
+.stSelectbox, .stDateInput {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 10px !important;
+}
+
+/* Buttons */
+.stButton > button {
+  background: linear-gradient(90deg, #6a00ff, #a200ff) !important;
+  color: white !important;
+  border: none;
+  border-radius: 10px;
+  padding: 0.6em 1.2em;
+  transition: all 0.3s ease;
+  font-weight: bold;
+}
+
+.stButton > button:hover {
+  background: linear-gradient(90deg, #8e2de2, #4a00e0) !important;
+  transform: scale(1.05);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}

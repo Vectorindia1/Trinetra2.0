@@ -1,0 +1,8 @@
+scrapy==2.12.0
+requests
+PySocks
+stem
+streamlit
+beautifulsoup4
+lxml
+tldextract
