@@ -468,21 +468,46 @@ def main():
             if tor_link_input.strip():
                 with st.spinner("⏳ Starting TOR Scraper in background..."):
                     try:
-                        subprocess.Popen(
+                        # Create the command to run scrapy with the virtual environment
+                        venv_python = "/home/vector/darknet_crawler/tor-env/bin/python"
+                        scrapy_cmd = "/home/vector/darknet_crawler/tor-env/bin/scrapy"
+                        
+                        # Validate URL
+                        url = tor_link_input.strip()
+                        if not url.startswith(('http://', 'https://')):
+                            url = 'http://' + url
+                        
+                        # Launch scraper with proper environment
+                        process = subprocess.Popen(
                             [
-                              "scrapy", "crawl", "onion",
-                              "-a", f"start_url={tor_link_input.strip()}",
-                              "-s", "LOG_FILE=crawler.log"
+                                scrapy_cmd, "crawl", "onion",
+                                "-a", f"start_url={url}",
+                                "-s", "LOG_LEVEL=INFO",
+                                "-s", "LOG_FILE=crawler.log"
                             ],
-                            cwd=".",
-                            stdout=open("crawler.log", "a"),
-                            stderr=subprocess.STDOUT
+                            cwd="/home/vector/darknet_crawler",
+                            stdout=open("/home/vector/darknet_crawler/crawler.log", "a"),
+                            stderr=subprocess.STDOUT,
+                            env={**os.environ, 'PATH': '/home/vector/darknet_crawler/tor-env/bin:' + os.environ.get('PATH', '')}
                         )
-                        st.success("🟢 Scraper started in background. Monitoring live updates below.")
+                        
+                        st.success(f"🟢 Scraper started for: {url}")
+                        st.info("📊 Check the Live Monitoring tab to see real-time progress")
+                        
+                        # Store the process info for monitoring
+                        if 'scraper_processes' not in st.session_state:
+                            st.session_state.scraper_processes = []
+                        st.session_state.scraper_processes.append({
+                            'pid': process.pid,
+                            'url': url,
+                            'start_time': datetime.now().isoformat()
+                        })
+                        
                     except Exception as ex:
                         st.error(f"❌ Failed to launch scraper: {ex}")
+                        st.error("Check that the Tor service is running and the URL is valid")
             else:
-              st.warning("⚠ Please enter a valid TOR link before scraping.")
+                st.warning("⚠ Please enter a valid TOR link before scraping.")
 
 
 

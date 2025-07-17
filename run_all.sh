@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change to the project directory
+cd /home/vector/darknet_crawler
+
 # Activate virtual environment
 source tor-env/bin/activate
 
@@ -12,9 +15,9 @@ else
     echo "✅ Tor is already running."
 fi
 
-# Run Scrapy crawler
+# Run Scrapy crawler with proper path
 echo "🚀 Starting Darknet Crawler..."
-scrapy runspider tor_crawler.py -a start_url=$1 &> crawler.log &
+scrapy runspider crawler/spiders/tor_crawler.py -a start_url=$1 &> crawler.log &
 
 # Run Streamlit dashboard
 echo "🧪 Launching Streamlit Dashboard..."

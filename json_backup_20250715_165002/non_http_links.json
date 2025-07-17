@@ -1,0 +1,22 @@
+[
+  {
+    "source": "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/about/",
+    "type": "mailto",
+    "value": "mailto:juha.nurmi@ahmia.fi"
+  },
+  {
+    "source": "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/legal/",
+    "type": "mailto",
+    "value": "mailto:juha.nurmi@ahmia.fi"
+  },
+  {
+    "source": "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/terms/",
+    "type": "mailto",
+    "value": "mailto:juha.nurmi@ahmia.fi"
+  },
+  {
+    "source": "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/privacy/",
+    "type": "mailto",
+    "value": "mailto:juha.nurmi@ahmia.fi"
+  }
+]
