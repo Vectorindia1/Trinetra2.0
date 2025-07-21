@@ -23,7 +23,28 @@ st.set_page_config(
 # ============================
 # Loaders with Enhanced Error Handling
 # ============================
-@st.cache_data
+def load_database_alerts(limit=100):
+    """Load alerts from database for real-time updates"""
+    try:
+        from database.models import db_manager
+        alerts = db_manager.get_alerts(limit=limit)
+        
+        # Convert database rows to dictionary format compatible with existing code
+        processed_alerts = []
+        for alert in alerts:
+            processed_alert = dict(alert)
+            # Parse keywords_found if it's a JSON string
+            if 'keywords_found' in processed_alert and isinstance(processed_alert['keywords_found'], str):
+                try:
+                    processed_alert['keywords_found'] = json.loads(processed_alert['keywords_found'])
+                except:
+                    processed_alert['keywords_found'] = []
+            processed_alerts.append(processed_alert)
+        
+        return processed_alerts
+    except Exception as e:
+        st.warning(f"⚠️ Could not load database alerts: {e}")
+        return []
 def load_alerts(path="alert_log.json"):
     try:
         with open(path, "r", encoding='utf-8') as f:
@@ -39,7 +60,6 @@ def load_alerts(path="alert_log.json"):
         st.error(f"❌ Unexpected error loading alerts: {e}")
         return []
 
-@st.cache_data
 def load_visited(path="visited_links.json"):
     try:
         with open(path, "r", encoding='utf-8') as f:
@@ -54,7 +74,6 @@ def load_visited(path="visited_links.json"):
         st.error(f"❌ Unexpected error loading visited links: {e}")
         return []
 
-@st.cache_data
 def load_non_http(path="non_http_links.json"):
     try:
         with open(path, "r", encoding='utf-8') as f:
@@ -448,10 +467,10 @@ def main():
             "🧭 Navigation",
             [
                 "📊 Dashboard Overview",
-                "☁️ Threat Cloud",
-                "📈 Keyword Analytics", 
-                "⏰ Timeline Analysis",
+                "📈 AI Keyword Analytics", 
+                "⏰ AI Timeline Analysis",
                 "🔍 Alert Browser",
+                "🤖 AI Analysis",
                 "🧠 Live Monitoring"
             ],
             key="navigation"
@@ -534,7 +553,17 @@ def main():
     
     # Load data with error handling
     try:
-        alerts = load_alerts()
+        # Try to load from database first (real-time data)
+        db_alerts = load_database_alerts(limit=200)
+        if db_alerts:
+            st.info(f"✅ Loaded {len(db_alerts)} alerts from database (real-time)")
+            alerts = db_alerts
+        else:
+            # Fallback to JSON files
+            alerts = load_alerts()
+            if alerts:
+                st.warning("⚠️ Using JSON file data (may not be up-to-date)")
+        
         visited = load_visited()
         non_http = load_non_http()
         
@@ -591,144 +620,448 @@ def main():
             
             st.markdown('</div>', unsafe_allow_html=True)
     
-    # ========== Threat Cloud ==========
-    elif menu == "☁️ Threat Cloud":
+    # ========== AI Keyword Analytics ==========
+    elif menu == "📈 AI Keyword Analytics":
         st.markdown('<div class="glass-container">', unsafe_allow_html=True)
-        st.markdown("### ☁️ Threat Keyword Cloud")
-        
-        if all_keywords:
-            try:
-                # Create enhanced word cloud
-                wc = WordCloud(
-                    width=1200, 
-                    height=600, 
-                    background_color='rgba(0,0,0,0)',
-                    mode='RGBA',
-                    colormap='plasma',
-                    max_words=100,
-                    relative_scaling=0.5,
-                    random_state=42
-                ).generate(" ".join(all_keywords))
-                
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.imshow(wc, interpolation='bilinear')
-                ax.axis('off')
-                fig.patch.set_facecolor('none')
-                fig.patch.set_alpha(0)
-                
-                st.pyplot(fig, use_container_width=True, transparent=True)
-                
-            except Exception as e:
-                st.error(f"❌ Error generating word cloud: {e}")
-        else:
-            st.warning("⚠️ No keywords available for visualization")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ========== Keyword Analytics ==========
-    elif menu == "📈 Keyword Analytics":
-        st.markdown('<div class="glass-container">', unsafe_allow_html=True)
-        st.markdown("### 📈 Keyword Distribution Analysis")
-        
-        if all_keywords:
-            try:
-                keyword_counts = Counter(all_keywords)
-                
-                # Create enhanced pie chart
-                pie_df = pd.DataFrame(keyword_counts.most_common(10), columns=["Keyword", "Count"])
-                
-                fig = px.pie(
-                    pie_df, 
-                    names="Keyword", 
-                    values="Count",
-                    hole=0.4,
-                    color_discrete_sequence=px.colors.sequential.Plasma
-                )
-                
-                fig.update_traces(
-                    textposition='inside', 
-                    textinfo='percent+label',
-                    hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
-                )
-                
-                fig.update_layout(
-                    font=dict(family="Rajdhani, sans-serif", size=12, color="white"),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    margin=dict(t=0, b=0, l=0, r=0)
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Severity breakdown
-                severity_counts = Counter([get_severity(k) for k in all_keywords])
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    create_metric_card("High Risk", severity_counts.get("High", 0), "🔴")
-                with col2:
-                    create_metric_card("Medium Risk", severity_counts.get("Medium", 0), "🟡")
-                with col3:
-                    create_metric_card("Low Risk", severity_counts.get("Low", 0), "🟢")
-                
-            except Exception as e:
-                st.error(f"❌ Error creating analytics: {e}")
-        else:
-            st.info("📭 No keyword data available for analysis")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ========== Timeline Analysis ==========
-    elif menu == "⏰ Timeline Analysis":
-        st.markdown('<div class="glass-container">', unsafe_allow_html=True)
-        st.markdown("### ⏰ Threat Timeline Analysis")
+        st.markdown("### 🤖 AI-Powered Keyword Intelligence Analysis")
         
         try:
-            time_data = []
-            for alert in valid_alerts:
-                if "timestamp" in alert:
-                    try:
-                        timestamp = pd.to_datetime(alert["timestamp"])
-                        severity = max([get_severity(k) for k in alert.get("keywords_found", [])], default="Low")
-                        time_data.append({"timestamp": timestamp, "severity": severity})
-                    except:
-                        continue
+            from database.models import db_manager
+            ai_analyses = db_manager.get_ai_analyses(limit=500)
+            ai_stats = db_manager.get_ai_statistics()
             
-            if time_data:
-                df = pd.DataFrame(time_data)
+            if ai_analyses:
+                # Collect AI-identified threat categories and indicators
+                ai_keywords = []
+                keyword_to_urls = {}  # For hover details
+                keyword_to_threat_levels = {}
                 
-                # Hourly aggregation
-                df['hour'] = df['timestamp'].dt.floor('H')
-                hourly_counts = df.groupby(['hour', 'severity']).size().reset_index(name='count')
+                for analysis in ai_analyses:
+                    url = analysis.get('url', 'Unknown')
+                    threat_level = analysis.get('threat_level', 'LOW')
+                    
+                    # Collect threat categories
+                    for category in analysis.get('threat_categories', []):
+                        ai_keywords.append(category)
+                        if category not in keyword_to_urls:
+                            keyword_to_urls[category] = []
+                            keyword_to_threat_levels[category] = []
+                        keyword_to_urls[category].append(url)
+                        keyword_to_threat_levels[category].append(threat_level)
+                    
+                    # Collect suspicious indicators
+                    for indicator in analysis.get('suspicious_indicators', []):
+                        ai_keywords.append(indicator)
+                        if indicator not in keyword_to_urls:
+                            keyword_to_urls[indicator] = []
+                            keyword_to_threat_levels[indicator] = []
+                        keyword_to_urls[indicator].append(url)
+                        keyword_to_threat_levels[indicator].append(threat_level)
                 
-                # Create enhanced timeline chart
-                fig = px.line(
-                    hourly_counts, 
-                    x='hour', 
-                    y='count', 
-                    color='severity',
-                    color_discrete_map={
-                        'High': '#ef4444',
-                        'Medium': '#f59e0b',
-                        'Low': '#22c55e'
-                    },
-                    title="Threat Activity Over Time"
-                )
+                if ai_keywords:
+                    # AI Keyword Frequency Analysis
+                    keyword_counts = Counter(ai_keywords)
+                    top_keywords = keyword_counts.most_common(15)
+                    
+                    # Create enhanced interactive bar chart
+                    keyword_df = pd.DataFrame(top_keywords, columns=["Keyword", "Frequency"])
+                    
+                    # Add threat level information
+                    keyword_df['Avg_Threat_Level'] = keyword_df['Keyword'].apply(
+                        lambda k: Counter(keyword_to_threat_levels.get(k, [])).most_common(1)[0][0] if keyword_to_threat_levels.get(k) else 'LOW'
+                    )
+                    
+                    # Color mapping based on threat level
+                    color_map = {
+                        'CRITICAL': '#dc2626',
+                        'HIGH': '#ef4444', 
+                        'MEDIUM': '#f59e0b',
+                        'LOW': '#22c55e',
+                        'BENIGN': '#6b7280'
+                    }
+                    
+                    keyword_df['Color'] = keyword_df['Avg_Threat_Level'].map(color_map)
+                    
+                    fig = go.Figure(data=[
+                        go.Bar(
+                            x=keyword_df['Frequency'],
+                            y=keyword_df['Keyword'],
+                            orientation='h',
+                            marker=dict(
+                                color=keyword_df['Color'],
+                                line=dict(color='rgba(255,255,255,0.2)', width=1)
+                            ),
+                            hovertemplate='<b>%{y}</b><br>' +
+                                         'Frequency: %{x}<br>' +
+                                         'Threat Level: %{customdata}<br>' +
+                                         '<extra></extra>',
+                            customdata=keyword_df['Avg_Threat_Level'],
+                            texttemplate='%{x}',
+                            textposition='inside',
+                            textfont=dict(color='white', size=12)
+                        )
+                    ])
+                    
+                    fig.update_layout(
+                        title=dict(
+                            text="🎯 AI-Identified Threat Keywords & Categories",
+                            font=dict(color='white', size=18, family='Orbitron')
+                        ),
+                        font=dict(family="Rajdhani, sans-serif", size=12, color="white"),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(
+                            title="Frequency",
+                            showgrid=True, 
+                            gridcolor='rgba(255,255,255,0.1)',
+                            color='white'
+                        ),
+                        yaxis=dict(
+                            title="Keywords",
+                            showgrid=False,
+                            color='white'
+                        ),
+                        height=600,
+                        margin=dict(l=150, r=50, t=80, b=50)
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Interactive Keyword Details
+                    st.markdown("#### 🔍 Interactive Keyword Explorer")
+                    
+                    # Create a selectbox for keyword selection
+                    selected_keyword = st.selectbox(
+                        "🎯 Select a keyword to view details:",
+                        options=list(keyword_counts.keys()),
+                        index=0 if keyword_counts else None
+                    )
+                    
+                    if selected_keyword and selected_keyword in keyword_to_urls:
+                        urls_for_keyword = keyword_to_urls[selected_keyword]
+                        threat_levels_for_keyword = keyword_to_threat_levels[selected_keyword]
+                        
+                        # Create metrics for selected keyword
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            create_metric_card("Total Occurrences", len(urls_for_keyword), "📊")
+                        with col2:
+                            unique_urls = len(set(urls_for_keyword))
+                            create_metric_card("Unique URLs", unique_urls, "🌐")
+                        with col3:
+                            most_common_threat = Counter(threat_levels_for_keyword).most_common(1)[0][0]
+                            create_metric_card("Primary Threat Level", most_common_threat, "⚠️")
+                        with col4:
+                            critical_high = sum(1 for t in threat_levels_for_keyword if t in ['CRITICAL', 'HIGH'])
+                            create_metric_card("High-Risk Instances", critical_high, "🔴")
+                        
+                        # Show URLs where this keyword appears
+                        st.markdown(f"##### 🔗 URLs containing '{selected_keyword}':")
+                        
+                        # Create a dataframe for better display
+                        url_data = []
+                        for url, threat in zip(urls_for_keyword[:20], threat_levels_for_keyword[:20]):
+                            url_data.append({
+                                "URL": url,
+                                "Threat Level": threat,
+                                "Domain": url.split('/')[2] if '/' in url else url
+                            })
+                        
+                        if url_data:
+                            url_df = pd.DataFrame(url_data)
+                            st.dataframe(
+                                url_df,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "URL": st.column_config.LinkColumn(
+                                        "URL",
+                                        help="Click to visit the URL",
+                                        width="large"
+                                    ),
+                                    "Threat Level": st.column_config.TextColumn(
+                                        "Threat Level",
+                                        help="AI-assessed threat level",
+                                        width="small"
+                                    )
+                                }
+                            )
+                            
+                            if len(urls_for_keyword) > 20:
+                                st.info(f"ℹ️ Showing first 20 of {len(urls_for_keyword)} URLs")
+                    
+                    # AI Statistics Overview
+                    st.markdown("#### 📈 AI Keyword Analytics Summary")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        threat_categories_count = len([k for k in ai_keywords if any(analysis.get('threat_categories', []) for analysis in ai_analyses if k in analysis.get('threat_categories', []))])
+                        create_metric_card("Threat Categories", len(set([k for analysis in ai_analyses for k in analysis.get('threat_categories', [])])), "🎯")
+                    
+                    with col2:
+                        suspicious_indicators_count = len(set([k for analysis in ai_analyses for k in analysis.get('suspicious_indicators', [])]))
+                        create_metric_card("Suspicious Indicators", suspicious_indicators_count, "🔍")
+                    
+                    with col3:
+                        create_metric_card("Total AI Keywords", len(set(ai_keywords)), "🤖")
                 
-                fig.update_layout(
-                    font=dict(family="Rajdhani, sans-serif", color="white"),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
-                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("📭 No timeline data available")
+                st.info("💭 No AI analysis data available. Run the crawler with AI analysis enabled to see keyword intelligence.")
                 
+                # Fallback to regular keyword analysis
+                if all_keywords:
+                    st.markdown("#### 🔄 Fallback: Traditional Keyword Analysis")
+                    keyword_counts = Counter(all_keywords)
+                    pie_df = pd.DataFrame(keyword_counts.most_common(10), columns=["Keyword", "Count"])
+                    
+                    fig = px.pie(
+                        pie_df, 
+                        names="Keyword", 
+                        values="Count",
+                        hole=0.4,
+                        color_discrete_sequence=px.colors.sequential.Viridis
+                    )
+                    
+                    fig.update_layout(
+                        font=dict(family="Rajdhani, sans-serif", color="white"),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+        
+        except ImportError:
+            st.error("❌ AI Analysis module not available. Please install required dependencies.")
         except Exception as e:
-            st.error(f"❌ Error creating timeline: {e}")
+            st.error(f"❌ Error loading AI keyword analytics: {e}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ========== AI Timeline Analysis ==========
+    elif menu == "⏰ AI Timeline Analysis":
+        st.markdown('<div class="glass-container">', unsafe_allow_html=True)
+        st.markdown("### ⏰ AI Threat Timeline Analysis")
+        
+        try:
+            from database.models import db_manager
+            ai_analyses = db_manager.get_ai_analyses(limit=1000)
+            
+            if ai_analyses:
+                # Process AI analysis data for timeline visualization
+                timeline_data = []
+                
+                for analysis in ai_analyses:
+                    try:
+                        # Convert processed_at timestamp
+                        timestamp = pd.to_datetime(analysis.get('processed_at'))
+                        threat_level = analysis.get('threat_level', 'LOW')
+                        confidence = analysis.get('confidence_score', 0.0)
+                        illegal_detected = analysis.get('illegal_content_detected', 0)
+                        
+                        timeline_data.append({
+                            'timestamp': timestamp,
+                            'threat_level': threat_level,
+                            'confidence': confidence,
+                            'illegal_content': bool(illegal_detected),
+                            'url': analysis.get('url', 'Unknown')
+                        })
+                    except Exception as e:
+                        continue
+                
+                if timeline_data:
+                    df = pd.DataFrame(timeline_data)
+                    
+                    # Create AI Timeline Analysis Overview
+                    st.markdown("#### 📊 AI Threat Detection Overview")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        total_analyses = len(df)
+                        create_metric_card("Total AI Analyses", total_analyses, "🧠")
+                    
+                    with col2:
+                        critical_high = len(df[df['threat_level'].isin(['CRITICAL', 'HIGH'])])
+                        create_metric_card("High-Risk Threats", critical_high, "🚨")
+                    
+                    with col3:
+                        illegal_content_count = len(df[df['illegal_content'] == True])
+                        create_metric_card("Illegal Content", illegal_content_count, "⚠️")
+                    
+                    with col4:
+                        avg_confidence = df['confidence'].mean()
+                        create_metric_card("Avg AI Confidence", f"{avg_confidence:.1%}", "📊")
+                    
+                    # Threat Level Timeline
+                    st.markdown("#### 📈 Threat Level Distribution Over Time")
+                    
+                    # Hourly aggregation by threat level
+                    df['hour'] = df['timestamp'].dt.floor('h')
+                    hourly_threat_counts = df.groupby(['hour', 'threat_level']).size().reset_index(name='count')
+                    
+                    # Debug info
+                    st.write(f"Debug: DataFrame shape: {df.shape}")
+                    st.write(f"Debug: Hourly counts shape: {hourly_threat_counts.shape}")
+                    st.write(f"Debug: Threat levels: {df['threat_level'].value_counts().to_dict()}")
+                    
+                    # Enhanced color mapping for threat levels
+                    threat_colors = {
+                        'CRITICAL': '#dc2626',
+                        'HIGH': '#ef4444',
+                        'MEDIUM': '#f59e0b', 
+                        'LOW': '#22c55e',
+                        'BENIGN': '#6b7280'
+                    }
+                    
+                    # Create interactive timeline chart
+                    fig_timeline = px.line(
+                        hourly_threat_counts,
+                        x='hour',
+                        y='count', 
+                        color='threat_level',
+                        color_discrete_map=threat_colors,
+                        title="🎯 AI-Detected Threats Over Time",
+                        markers=True
+                    )
+                    
+                    fig_timeline.update_layout(
+                        title=dict(
+                            font=dict(color='white', size=18, family='Orbitron')
+                        ),
+                        font=dict(family="Rajdhani, sans-serif", color="white"),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(
+                            title="Time", 
+                            showgrid=True, 
+                            gridcolor='rgba(255,255,255,0.1)',
+                            color='white'
+                        ),
+                        yaxis=dict(
+                            title="Threat Count", 
+                            showgrid=True, 
+                            gridcolor='rgba(255,255,255,0.1)',
+                            color='white'
+                        ),
+                        legend=dict(
+                            bgcolor='rgba(0,0,0,0.5)',
+                            bordercolor='rgba(255,255,255,0.2)'
+                        ),
+                        height=500
+                    )
+                    
+                    st.plotly_chart(fig_timeline, use_container_width=True)
+                    
+                    # AI Confidence Score Timeline
+                    st.markdown("#### 🎯 AI Confidence Distribution")
+                    
+                    # Hourly confidence aggregation
+                    hourly_confidence = df.groupby('hour').agg({
+                        'confidence': ['mean', 'min', 'max', 'count']
+                    }).reset_index()
+                    hourly_confidence.columns = ['hour', 'avg_confidence', 'min_confidence', 'max_confidence', 'analysis_count']
+                    
+                    # Create confidence timeline with error bands
+                    fig_confidence = go.Figure()
+                    
+                    # Add confidence band
+                    fig_confidence.add_trace(go.Scatter(
+                        x=list(hourly_confidence['hour']) + list(hourly_confidence['hour'][::-1]),
+                        y=list(hourly_confidence['max_confidence']) + list(hourly_confidence['min_confidence'][::-1]),
+                        fill='tonexty',
+                        fillcolor='rgba(99, 102, 241, 0.2)',
+                        line=dict(color='rgba(255,255,255,0)'),
+                        hoverinfo="skip",
+                        showlegend=False,
+                        name='Confidence Range'
+                    ))
+                    
+                    # Add average confidence line
+                    fig_confidence.add_trace(go.Scatter(
+                        x=hourly_confidence['hour'],
+                        y=hourly_confidence['avg_confidence'],
+                        mode='lines+markers',
+                        name='Average Confidence',
+                        line=dict(color='#6366f1', width=3),
+                        marker=dict(size=8, color='#6366f1')
+                    ))
+                    
+                    fig_confidence.update_layout(
+                        title=dict(
+                            text="🎯 AI Analysis Confidence Over Time",
+                            font=dict(color='white', size=18, family='Orbitron')
+                        ),
+                        font=dict(family="Rajdhani, sans-serif", color="white"),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(
+                            title="Time",
+                            showgrid=True,
+                            gridcolor='rgba(255,255,255,0.1)', 
+                            color='white'
+                        ),
+                        yaxis=dict(
+                            title="Confidence Score",
+                            showgrid=True,
+                            gridcolor='rgba(255,255,255,0.1)',
+                            color='white',
+                            tickformat='.0%'
+                        ),
+                        legend=dict(
+                            bgcolor='rgba(0,0,0,0.5)',
+                            bordercolor='rgba(255,255,255,0.2)'
+                        ),
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_confidence, use_container_width=True)
+                    
+                    # Recent High-Risk Detections
+                    st.markdown("#### 🚨 Recent High-Risk Detections")
+                    
+                    high_risk_df = df[df['threat_level'].isin(['CRITICAL', 'HIGH'])].sort_values('timestamp', ascending=False).head(10)
+                    
+                    if not high_risk_df.empty:
+                        for _, detection in high_risk_df.iterrows():
+                            with st.expander(f"🚨 {detection['threat_level']} - {detection['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}"):
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**🌐 URL:** {detection['url'][:100]}..." if len(detection['url']) > 100 else f"**🌐 URL:** {detection['url']}")
+                                    st.write(f"**⚠️ Threat Level:** {detection['threat_level']}")
+                                
+                                with col2:
+                                    st.write(f"**🎯 Confidence:** {detection['confidence']:.1%}")
+                                    st.write(f"**🚫 Illegal Content:** {'Yes' if detection['illegal_content'] else 'No'}")
+                    else:
+                        st.info("✅ No high-risk threats detected recently")
+                    
+                else:
+                    st.warning("📊 AI analysis data exists but could not be processed for timeline visualization")
+            else:
+                st.info("💭 No AI analysis data available. Run the crawler with AI analysis enabled to see threat timeline.")
+                
+                # Show fallback message with instructions
+                st.markdown("""
+                ### 🚀 Getting Started with AI Timeline Analysis
+                
+                To see threat timeline data:
+                1. Enable AI analysis in your crawler configuration
+                2. Run the darknet crawler to collect and analyze URLs
+                3. Return to this dashboard to view AI-powered threat trends
+                
+                **Features you'll see:**
+                - Real-time threat level distribution over time
+                - AI confidence score tracking
+                - High-risk detection alerts
+                - Interactive timeline visualizations
+                """)
+                
+        except ImportError:
+            st.error("❌ AI Analysis module not available. Please install required dependencies.")
+        except Exception as e:
+            st.error(f"❌ Error loading AI timeline analysis: {e}")
+            st.write(f"Debug info: {str(e)}")
         
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -792,6 +1125,231 @@ def main():
                 )
             except Exception as e:
                 st.error(f"❌ Error exporting data: {e}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ========== AI Analysis ==========
+    elif menu == "🤖 AI Analysis":
+        st.markdown('<div class="glass-container">', unsafe_allow_html=True)
+        st.markdown("### 🤖 Gemini AI Threat Analysis Dashboard")
+        
+        # Import AI components
+        try:
+            from database.models import db_manager
+            ai_analyses = db_manager.get_ai_analyses(limit=100)
+            ai_stats = db_manager.get_ai_statistics()
+            threat_signatures = db_manager.get_threat_signatures(limit=20)
+            
+            # AI Analysis Overview
+            st.markdown("#### 📊 AI Analysis Overview")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                create_metric_card("AI Analyses", ai_stats.get('total_ai_analyses', 0), "🧠")
+            
+            with col2:
+                illegal_count = ai_stats.get('illegal_content_detected', 0)
+                create_metric_card("Illegal Content", illegal_count, "⚠️")
+            
+            with col3:
+                avg_confidence = ai_stats.get('avg_confidence_score', 0)
+                create_metric_card("Avg Confidence", f"{avg_confidence:.1%}", "📊")
+            
+            with col4:
+                active_signatures = ai_stats.get('active_threat_signatures', 0)
+                create_metric_card("Threat Patterns", active_signatures, "🎯")
+            
+            # Threat Level Distribution
+            st.markdown("#### 🎯 AI Threat Level Distribution")
+            if ai_stats.get('ai_threat_levels'):
+                threat_df = pd.DataFrame(list(ai_stats['ai_threat_levels'].items()), 
+                                       columns=['Threat Level', 'Count'])
+                
+                fig = px.bar(
+                    threat_df, 
+                    x='Threat Level', 
+                    y='Count',
+                    color='Threat Level',
+                    color_discrete_map={
+                        'CRITICAL': '#dc2626',
+                        'HIGH': '#ef4444',
+                        'MEDIUM': '#f59e0b',
+                        'LOW': '#22c55e',
+                        'BENIGN': '#6b7280'
+                    }
+                )
+                
+                fig.update_layout(
+                    font=dict(family="Rajdhani, sans-serif", color="white"),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Recent AI Analyses
+            st.markdown("#### 🔍 Recent AI Threat Analyses")
+            
+            # Filter controls
+            col1, col2 = st.columns(2)
+            with col1:
+                threat_filter = st.selectbox("Filter by Threat Level:", 
+                                           ["All", "CRITICAL", "HIGH", "MEDIUM", "LOW", "BENIGN"])
+            with col2:
+                show_illegal_only = st.checkbox("Show only illegal content", value=False)
+            
+            # Apply filters
+            filtered_analyses = ai_analyses.copy()
+            if threat_filter != "All":
+                filtered_analyses = [a for a in filtered_analyses if a.get('threat_level') == threat_filter]
+            if show_illegal_only:
+                filtered_analyses = [a for a in filtered_analyses if a.get('illegal_content_detected')]
+            
+            # Display AI analyses
+            for analysis in filtered_analyses[:10]:  # Show top 10
+                threat_level = analysis.get('threat_level', 'UNKNOWN')
+                confidence = analysis.get('confidence_score', 0)
+                illegal = analysis.get('illegal_content_detected', False)
+                
+                # Color coding based on threat level
+                if threat_level in ['CRITICAL', 'HIGH']:
+                    border_color = 'rgba(239, 68, 68, 0.3)'
+                    bg_color = 'rgba(239, 68, 68, 0.1)'
+                elif threat_level == 'MEDIUM':
+                    border_color = 'rgba(251, 191, 36, 0.3)'
+                    bg_color = 'rgba(251, 191, 36, 0.1)'
+                else:
+                    border_color = 'rgba(34, 197, 94, 0.3)'
+                    bg_color = 'rgba(34, 197, 94, 0.1)'
+                
+                illegal_indicator = "⚠️ ILLEGAL CONTENT" if illegal else ""
+                
+                st.markdown(f"""
+                    <div style="
+                        background: {bg_color};
+                        border: 1px solid {border_color};
+                        border-radius: 15px;
+                        padding: 1.5rem;
+                        margin: 1rem 0;
+                        backdrop-filter: blur(10px);
+                    ">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-weight: 600; color: #e2e8f0;">🤖 AI Analysis - {threat_level}</span>
+                            <span style="font-size: 0.9rem; color: #94a3b8;">📊 Confidence: {confidence:.1%}</span>
+                        </div>
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong style="color: #e2e8f0;">🔗 URL:</strong> 
+                            <a href="{analysis.get('url', '')}" target="_blank" style="color: #9333ea; text-decoration: none;">
+                                {analysis.get('url', 'Unknown')}
+                            </a>
+                        </div>
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong style="color: #e2e8f0;">📝 Summary:</strong> 
+                            <span style="color: #cbd5e1;">{analysis.get('analysis_summary', 'No summary available')}</span>
+                        </div>
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong style="color: #e2e8f0;">🎯 Categories:</strong> 
+                            <code style="background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 5px; color: #9333ea;">
+                                {', '.join(analysis.get('threat_categories', []))}
+                            </code>
+                        </div>
+                        <div style="margin-bottom: 0.5rem;">
+                            <strong style="color: #e2e8f0;">🔍 Indicators:</strong> 
+                            <span style="color: #cbd5e1;">{', '.join(analysis.get('suspicious_indicators', [])[:3])}</span>
+                        </div>
+                        {f'<div style="color: #ef4444; font-weight: bold;">{illegal_indicator}</div>' if illegal else ''}
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Threat Signatures Analysis
+            st.markdown("#### 🎯 Active Threat Signatures")
+            if threat_signatures:
+                for sig in threat_signatures[:5]:  # Show top 5 signatures
+                    st.markdown(f"""
+                        <div style="
+                            background: rgba(147, 51, 234, 0.1);
+                            border: 1px solid rgba(147, 51, 234, 0.3);
+                            border-radius: 10px;
+                            padding: 1rem;
+                            margin: 0.5rem 0;
+                        ">
+                            <strong>🔐 Signature:</strong> {sig.get('signature_hash', 'Unknown')}<br>
+                            <strong>📊 Type:</strong> {sig.get('threat_type', 'Unknown')}<br>
+                            <strong>🎯 Confidence:</strong> {sig.get('confidence_level', 0):.1%}<br>
+                            <strong>📈 Occurrences:</strong> {sig.get('occurrence_count', 0)}
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            # AI Analysis Controls
+            st.markdown("#### 🔧 AI Analysis Controls")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🧠 Test AI Connection"):
+                    try:
+                        from ai.gemini_analyzer import gemini_analyzer
+                        test_analysis = gemini_analyzer.analyze_content_sync(
+                            url="test://example.onion",
+                            title="Test Page",
+                            content="This is a test page for AI analysis.",
+                            keywords=["test"]
+                        )
+                        if test_analysis:
+                            st.success("✅ AI Analysis is working correctly!")
+                            st.info(f"Test result: {test_analysis.threat_level} threat level")
+                        else:
+                            st.error("❌ AI Analysis test failed")
+                    except Exception as e:
+                        st.error(f"❌ AI Connection failed: {e}")
+            
+            with col2:
+                if st.button("📊 Generate AI Report"):
+                    if ai_analyses:
+                        try:
+                            # Convert to ThreatAnalysis objects for report generation
+                            from ai.gemini_analyzer import gemini_analyzer, ThreatAnalysis
+                            analysis_objects = []
+                            for analysis in ai_analyses[:50]:
+                                threat_analysis = ThreatAnalysis(
+                                    content_hash=analysis.get('content_hash', ''),
+                                    threat_level=analysis.get('threat_level', 'LOW'),
+                                    threat_categories=analysis.get('threat_categories', []),
+                                    suspicious_indicators=analysis.get('suspicious_indicators', []),
+                                    illegal_content_detected=analysis.get('illegal_content_detected', False),
+                                    confidence_score=analysis.get('confidence_score', 0.0),
+                                    analysis_summary=analysis.get('analysis_summary', ''),
+                                    recommended_actions=analysis.get('recommended_actions', []),
+                                    ai_reasoning=analysis.get('ai_reasoning', ''),
+                                    timestamp=analysis.get('processed_at', '')
+                                )
+                                analysis_objects.append(threat_analysis)
+                            
+                            report = gemini_analyzer.generate_intelligence_report(analysis_objects)
+                            
+                            st.success("📊 Intelligence Report Generated")
+                            
+                            # Display report summary
+                            st.json(report)
+                            
+                            # Download report
+                            report_json = json.dumps(report, indent=2)
+                            st.download_button(
+                                label="📥 Download Full Report",
+                                data=report_json,
+                                file_name=f"ai_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime="application/json"
+                            )
+                        except Exception as e:
+                            st.error(f"❌ Error generating report: {e}")
+                    else:
+                        st.warning("⚠️ No AI analyses available for report generation")
+            
+        except ImportError:
+            st.error("❌ AI Analysis module not available. Please install required dependencies.")
+        except Exception as e:
+            st.error(f"❌ Error loading AI analysis data: {e}")
         
         st.markdown('</div>', unsafe_allow_html=True)
     

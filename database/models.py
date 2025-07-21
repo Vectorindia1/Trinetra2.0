@@ -174,6 +174,42 @@ class DatabaseManager:
                     )
                 """)
                 
+                # AI Analysis results table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_analysis (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content_hash TEXT UNIQUE NOT NULL,
+                        url TEXT NOT NULL,
+                        threat_level TEXT NOT NULL,
+                        threat_categories TEXT,
+                        suspicious_indicators TEXT,
+                        illegal_content_detected BOOLEAN DEFAULT FALSE,
+                        confidence_score REAL DEFAULT 0.0,
+                        analysis_summary TEXT,
+                        recommended_actions TEXT,
+                        ai_reasoning TEXT,
+                        threat_signature TEXT,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Threat intelligence enhanced table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_signatures (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        signature_hash TEXT UNIQUE NOT NULL,
+                        threat_type TEXT NOT NULL,
+                        indicators TEXT NOT NULL,
+                        confidence_level REAL DEFAULT 0.0,
+                        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        occurrence_count INTEGER DEFAULT 1,
+                        status TEXT DEFAULT 'ACTIVE',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
                 # Create optimized indexes
                 indexes = [
                     "CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)",
@@ -372,6 +408,124 @@ class DatabaseManager:
         
         logger.info("✅ Migration completed successfully")
     
+    def insert_ai_analysis(self, analysis_data: Dict) -> int:
+        """Insert AI analysis results"""
+        with self.get_cursor() as cursor:
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO ai_analysis 
+                    (content_hash, url, threat_level, threat_categories, suspicious_indicators,
+                     illegal_content_detected, confidence_score, analysis_summary, 
+                     recommended_actions, ai_reasoning, threat_signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    analysis_data.get('content_hash', ''),
+                    analysis_data.get('url', ''),
+                    analysis_data.get('threat_level', 'LOW'),
+                    json.dumps(analysis_data.get('threat_categories', [])),
+                    json.dumps(analysis_data.get('suspicious_indicators', [])),
+                    analysis_data.get('illegal_content_detected', False),
+                    analysis_data.get('confidence_score', 0.0),
+                    analysis_data.get('analysis_summary', ''),
+                    json.dumps(analysis_data.get('recommended_actions', [])),
+                    analysis_data.get('ai_reasoning', ''),
+                    analysis_data.get('threat_signature', '')
+                ))
+                return cursor.lastrowid
+            except sqlite3.Error as e:
+                logger.error(f"Error inserting AI analysis: {e}")
+                return 0
+    
+    def get_ai_analyses(self, limit: int = 100, threat_level: str = None) -> List[Dict]:
+        """Get AI analysis results"""
+        with self.get_cursor() as cursor:
+            query = "SELECT * FROM ai_analysis WHERE 1=1"
+            params = []
+            
+            if threat_level:
+                query += " AND threat_level = ?"
+                params.append(threat_level)
+            
+            query += " ORDER BY processed_at DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                result = dict(row)
+                # Parse JSON fields
+                try:
+                    result['threat_categories'] = json.loads(result.get('threat_categories', '[]'))
+                    result['suspicious_indicators'] = json.loads(result.get('suspicious_indicators', '[]'))
+                    result['recommended_actions'] = json.loads(result.get('recommended_actions', '[]'))
+                except json.JSONDecodeError:
+                    pass
+                results.append(result)
+            
+            return results
+    
+    def get_threat_signatures(self, limit: int = 50) -> List[Dict]:
+        """Get threat signatures"""
+        with self.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT * FROM threat_signatures 
+                WHERE status = 'ACTIVE'
+                ORDER BY occurrence_count DESC, last_seen DESC 
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def update_threat_signature(self, signature_hash: str, threat_type: str, indicators: List[str], confidence: float):
+        """Update or insert threat signature"""
+        with self.get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO threat_signatures (signature_hash, threat_type, indicators, confidence_level)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(signature_hash) DO UPDATE SET
+                    threat_type = excluded.threat_type,
+                    indicators = excluded.indicators,
+                    confidence_level = excluded.confidence_level,
+                    last_seen = CURRENT_TIMESTAMP,
+                    occurrence_count = occurrence_count + 1
+            """, (signature_hash, threat_type, json.dumps(indicators), confidence))
+    
+    def get_ai_statistics(self) -> Dict:
+        """Get AI analysis statistics"""
+        with self.get_cursor() as cursor:
+            stats = {}
+            
+            # AI analysis statistics
+            cursor.execute("SELECT COUNT(*) FROM ai_analysis")
+            stats['total_ai_analyses'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT threat_level, COUNT(*) FROM ai_analysis GROUP BY threat_level")
+            stats['ai_threat_levels'] = dict(cursor.fetchall())
+            
+            cursor.execute("SELECT COUNT(*) FROM ai_analysis WHERE illegal_content_detected = 1")
+            stats['illegal_content_detected'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT AVG(confidence_score) FROM ai_analysis")
+            stats['avg_confidence_score'] = cursor.fetchone()[0] or 0.0
+            
+            # Threat signature statistics
+            cursor.execute("SELECT COUNT(*) FROM threat_signatures WHERE status = 'ACTIVE'")
+            stats['active_threat_signatures'] = cursor.fetchone()[0]
+            
+            cursor.execute("""
+                SELECT threat_type, COUNT(*) 
+                FROM threat_signatures 
+                WHERE status = 'ACTIVE' 
+                GROUP BY threat_type 
+                ORDER BY COUNT(*) DESC 
+                LIMIT 10
+            """)
+            stats['top_threat_types'] = dict(cursor.fetchall())
+            
+            return stats
+
     def _determine_threat_level(self, keywords: List[str]) -> str:
         """Determine threat level based on keywords"""
         high_risk = ['bomb', 'terror', 'attack', 'kill', 'explosive', 'weapon', 'assassination', 'murder']

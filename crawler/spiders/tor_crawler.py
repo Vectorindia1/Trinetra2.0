@@ -16,6 +16,17 @@ from scrapy.exceptions import IgnoreRequest
 from scrapy.utils.response import get_base_url
 from scrapy.http import Request
 
+# Import AI analysis
+try:
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from ai.gemini_analyzer import analyze_with_ai_sync, gemini_analyzer
+    AI_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ AI module not available: {e}")
+    AI_ENABLED = False
+
 # Load keywords
 with open("keyword.json") as f:
     KEYWORDS = set(json.load(f).get("india_keywords", []))
@@ -152,27 +163,96 @@ class OnionCrawler(scrapy.Spider):
             
         matched_keywords = [kw for kw in KEYWORDS if re.search(rf"\b{re.escape(kw.lower())}\b", page_text)]
 
-        if matched_keywords:
-            content_hash = hashlib.md5(response.text.encode('utf-8')).hexdigest()
+        # Enhanced threat detection with AI analysis
+        content_hash = hashlib.md5(response.text.encode('utf-8')).hexdigest()
+        page_title = response.css('title::text').get() or "No Title"
+        ai_analysis = None
+        
+        # Perform AI analysis if keywords detected or high-risk content suspected
+        if matched_keywords or self._is_suspicious_content(page_text, url):
+            if AI_ENABLED:
+                try:
+                    self.logger.info(f"🧠 Running AI analysis for: {url}")
+                    ai_analysis = analyze_with_ai_sync(
+                        url=url,
+                        title=page_title,
+                        content=response.text[:5000],  # Limit content size
+                        keywords=matched_keywords
+                    )
+                    
+                    if ai_analysis:
+                        # Store AI analysis results
+                        ai_data = {
+                            'content_hash': content_hash,
+                            'url': url,
+                            'threat_level': ai_analysis.threat_level,
+                            'threat_categories': ai_analysis.threat_categories,
+                            'suspicious_indicators': ai_analysis.suspicious_indicators,
+                            'illegal_content_detected': ai_analysis.illegal_content_detected,
+                            'confidence_score': ai_analysis.confidence_score,
+                            'analysis_summary': ai_analysis.analysis_summary,
+                            'recommended_actions': ai_analysis.recommended_actions,
+                            'ai_reasoning': ai_analysis.ai_reasoning,
+                            'threat_signature': gemini_analyzer.create_threat_signature(ai_analysis)
+                        }
+                        db_manager.insert_ai_analysis(ai_data)
+                        
+                        # Update threat signature database
+                        signature_hash = hashlib.sha256(f"{ai_analysis.threat_level}_{','.join(ai_analysis.threat_categories)}".encode()).hexdigest()[:16]
+                        db_manager.update_threat_signature(
+                            signature_hash,
+                            ai_analysis.threat_level,
+                            ai_analysis.suspicious_indicators,
+                            ai_analysis.confidence_score
+                        )
+                        
+                        self.logger.info(f"🎯 AI Analysis: {ai_analysis.threat_level} threat detected with {ai_analysis.confidence_score:.2f} confidence")
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ AI analysis failed for {url}: {e}")
+                    ai_analysis = None
+        
+        # Create alert based on keyword detection or AI analysis
+        if matched_keywords or (ai_analysis and ai_analysis.threat_level in ['CRITICAL', 'HIGH', 'MEDIUM']):
+            # Use AI threat level if available, otherwise use keyword-based level
+            threat_level = ai_analysis.threat_level if ai_analysis else self._determine_threat_level(matched_keywords)
+            
             alert = Alert(
                 timestamp=str(datetime.now()),
                 url=url,
-                title=response.css('title::text').get() or "No Title",
+                title=page_title,
                 keywords_found=matched_keywords,
                 content_hash=content_hash,
-                threat_level=self._determine_threat_level(matched_keywords)
+                threat_level=threat_level
             )
             db_manager.insert_alert(alert)
 
-            # Send Telegram alert
-            message = f"""
-🚨 <b>Dark Web Alert Detected</b>
+            # Enhanced Telegram alert with AI insights
+            base_message = f"""
+🚨 <b>TRINETRA THREAT DETECTED</b>
 🔗 <b>URL:</b> {alert.url}
 🧠 <b>Title:</b> {alert.title}
-🚨 <b>Keywords:</b> {', '.join(alert.keywords_found)}
-🕒 <b>Timestamp:</b> {alert.timestamp}
+🚨 <b>Threat Level:</b> {threat_level}
+🕒 <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
 """
-            send_telegram_alert(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, message)
+            
+            if matched_keywords:
+                base_message += f"🔍 <b>Keywords:</b> {', '.join(matched_keywords)}\n"
+            
+            if ai_analysis:
+                base_message += f"""
+🤖 <b>AI Analysis:</b> {ai_analysis.analysis_summary}
+📊 <b>Confidence:</b> {ai_analysis.confidence_score:.1%}
+🎯 <b>Categories:</b> {', '.join(ai_analysis.threat_categories[:3])}
+"""
+                
+                if ai_analysis.illegal_content_detected:
+                    base_message += "⚠️ <b>ILLEGAL CONTENT DETECTED!</b>\n"
+                
+                if ai_analysis.recommended_actions:
+                    base_message += f"📋 <b>Actions:</b> {', '.join(ai_analysis.recommended_actions[:2])}\n"
+            
+            send_telegram_alert(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, base_message)
 
         # Follow links concurrently
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -254,6 +334,37 @@ class OnionCrawler(scrapy.Spider):
                 return True
                 
         return False
+    
+    def _is_suspicious_content(self, page_text, url):
+        """Detect suspicious content patterns that warrant AI analysis"""
+        suspicious_patterns = [
+            r'(?i)(buy|sell|order|purchase).*(drug|narcotic|cocaine|heroin|meth|lsd|mdma)',
+            r'(?i)(weapon|gun|rifle|pistol|bomb|explosive|grenade)',
+            r'(?i)(credit.*card|cvv|dump|fullz|carding|fraud)',
+            r'(?i)(hacking.*service|malware|ransomware|ddos.*attack)',
+            r'(?i)(child|minor|underage).*(porn|sex|abuse)',
+            r'(?i)(human.*trafficking|slave|forced.*labor)',
+            r'(?i)(terrorism|terrorist|attack|bomb.*making)',
+            r'(?i)(money.*laundering|bitcoin.*mixer|crypto.*tumbler)',
+            r'(?i)(assassination|murder.*for.*hire|hitman)',
+            r'(?i)(passport|id.*card|social.*security).*(fake|forged)',
+            r'bitcoin|monero|cryptocurrency.*exchange.*[0-9a-f]{32,}',  # Crypto addresses
+            r'[0-9]{4}.*[0-9]{4}.*[0-9]{4}.*[0-9]{4}',  # Credit card patterns
+        ]
+        
+        # Check URL structure for suspicious patterns
+        url_suspicious = any([
+            'market' in url.lower(),
+            'shop' in url.lower() and '.onion' in url,
+            'vendor' in url.lower(),
+            'admin' in url.lower(),
+            'upload' in url.lower(),
+        ])
+        
+        # Check content for suspicious patterns
+        content_suspicious = any(re.search(pattern, page_text) for pattern in suspicious_patterns)
+        
+        return url_suspicious or content_suspicious
     
     def _determine_threat_level(self, keywords):
         """Determine threat level based on keywords"""
