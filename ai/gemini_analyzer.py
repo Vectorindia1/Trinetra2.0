@@ -62,6 +62,8 @@ class GeminiThreatAnalyzer:
         4. Identify suspicious communication patterns
         5. Flag potential terrorist or extremist content
         6. Detect money laundering or financial crimes
+        7. Detect social engineering attempts (phishing, scams, manipulation tactics)
+        8. Identify disinformation campaigns and propaganda
 
         Content to analyze:
         URL: {url}

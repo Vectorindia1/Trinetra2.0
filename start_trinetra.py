@@ -15,12 +15,12 @@ class TrinetraLauncher:
         self.running = True
         
     def print_header(self):
-        print("🕵️  Starting TRINETRA - Dark Web Intelligence System...")
+        print("Starting TRINETRA - Dark Web Intelligence System...")
         print("=" * 50)
     
     def print_success(self):
         print("\033[92m" + "=" * 50)
-        print("🕵️  TRINETRA is now running!")
+        print("TRINETRA is now running!")
         print("=" * 50)
         print("🌐 Frontend: http://localhost:3000")
         print("🔌 Backend:  http://localhost:8000") 
@@ -50,7 +50,7 @@ class TrinetraLauncher:
                 self.frontend_process.kill()
                 print("✓ Frontend React server force stopped")
         
-        print("🕵️  TRINETRA shutdown complete.")
+        print("TRINETRA shutdown complete.")
         self.running = False
     
     def signal_handler(self, signum, frame):

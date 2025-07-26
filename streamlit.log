@@ -1,46 +1,10 @@
 
   You can now view your Streamlit app in your browser.
 
-  Local URL: http://localhost:8507
-  Network URL: http://10.5.50.114:8507
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.0.192:8501
 
-2025-07-17 16:45:37.812 Uncaught exception GET /_stcore/stream (::1)
-HTTPServerRequest(protocol='http', host='localhost:8507', method='GET', uri='/_stcore/stream', version='HTTP/1.1', remote_ip='::1')
-Traceback (most recent call last):
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/streamlit/web/bootstrap.py", line 348, in run
-    if asyncio.get_running_loop().is_running():
-       ~~~~~~~~~~~~~~~~~~~~~~~~^^
-RuntimeError: no running event loop
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/tornado/websocket.py", line 965, in _accept_connection
-    open_result = handler.open(*handler.open_args, **handler.open_kwargs)
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/streamlit/web/server/browser_websocket_handler.py", line 183, in open
-    self._session_id = self._runtime.connect_session(
-                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        client=self,
-        ^^^^^^^^^^^^
-        user_info=user_info,
-        ^^^^^^^^^^^^^^^^^^^^
-        existing_session_id=existing_session_id,
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/streamlit/runtime/runtime.py", line 386, in connect_session
-    session_id = self._session_mgr.connect_session(
-        client=client,
-    ...<3 lines>...
-        session_id_override=session_id_override,
-    )
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/streamlit/runtime/websocket_session_manager.py", line 97, in connect_session
-    self._session_storage.delete(existing_session.id)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/streamlit/runtime/memory_session_storage.py", line 74, in delete
-    del self._cache[session_id]
-        ~~~~~~~~~~~^^^^^^^^^^^^
-  File "/home/vector/darknet_crawler/tor-env/lib/python3.13/site-packages/cachetools/__init__.py", line 447, in __delitem__
-    raise KeyError(key)
-KeyError: '0f1c7633-d282-423f-a606-5237062100c0'
-2025-07-17 16:46:29.640 Session with id 0f1c7633-d282-423f-a606-5237062100c0 is already connected! Connecting to a new session.
+INFO:database.models:✅ Database initialized successfully
+2025-07-26 23:12:19.231 Received event for non-watched path: /home/vector/darknet_crawler/dashboard.py
+2025-07-26 23:12:19.232 Received event for non-watched path: /home/vector/darknet_crawler/dashboard.py
+  Stopping...

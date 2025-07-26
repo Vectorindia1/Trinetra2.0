@@ -37,8 +37,16 @@ const AIAnalysis = () => {
   const [threatLevelFilter, setThreatLevelFilter] = useState('all');
 
   useEffect(() => {
+    // Initial load only, no frequent refetching
     fetchAIData();
     fetchAIStats();
+  }, []); // Remove threatLevelFilter dependency
+  
+  // Separate effect for filter changes to avoid refetching stats
+  useEffect(() => {
+    if (threatLevelFilter !== 'all') {
+      fetchAIData();
+    }
   }, [threatLevelFilter]);
 
   const fetchAIData = async () => {

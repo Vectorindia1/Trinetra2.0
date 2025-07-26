@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
+
+// Configure axios base URL for API calls
+const API_BASE_URL = 'http://localhost:8000';
+axios.defaults.baseURL = API_BASE_URL;
 import toast, { Toaster } from 'react-hot-toast';
 import Plot from 'react-plotly.js';
 import {
@@ -71,7 +75,7 @@ const LoadingScreen = ({ isLoading }) => {
           }}
           transition={{ duration: 2, repeat: Infinity }}
         >
-          🕵️ TRINETRA
+          TRINETRA
         </motion.div>
         
         <div className="loading-text">DARK WEB INTELLIGENCE SYSTEM</div>
@@ -169,12 +173,18 @@ import TimelineAnalysis from './components/TimelineAnalysis';
 import KeywordAnalytics from './components/KeywordAnalytics';
 import AIAnalysis from './components/AIAnalysis';
 import LiveMonitoring from './components/LiveMonitoring';
+import LinkMap from './components/LinkMap';
+import ManualControl from './components/ManualControl';
+import IncidentReporting from './components/IncidentReporting';
 
 // Navigation Component
 const Navigation = ({ currentView, setCurrentView }) => {
   const navItems = [
     { id: 'dashboard', label: '🏠 Dashboard', icon: '🏠' },
     { id: 'scraper', label: '🧪 Manual Scraper', icon: '🧪' },
+    { id: 'control', label: '🔧 Manual Control', icon: '🔧' },
+    { id: 'incidents', label: '🚨 Incident Reports', icon: '🚨' },
+    { id: 'linkmap', label: '🕸️ Link Map', icon: '🕸️' },
     { id: 'timeline', label: '📊 Timeline Analysis', icon: '📊' },
     { id: 'keywords', label: '🔍 Keyword Analytics', icon: '🔍' },
     { id: 'alerts', label: '⚠️ Alerts', icon: '⚠️' },
@@ -201,7 +211,7 @@ const Navigation = ({ currentView, setCurrentView }) => {
           }}
           transition={{ duration: 3, repeat: Infinity }}
         >
-          🕵️ TRINETRA
+          TRINETRA
         </motion.div>
       </div>
       
@@ -298,6 +308,14 @@ const AppContent = () => {
     };
 
     init();
+
+    // Set up VERY infrequent health checks only - no constant polling
+    const healthInterval = setInterval(checkHealth, 120000); // Every 2 minutes only
+    // NO dashboard interval - only update on user action
+
+    return () => {
+      clearInterval(healthInterval);
+    };
   }, [actions, dispatch]);
 
   const renderCurrentView = () => {
@@ -306,6 +324,12 @@ const AppContent = () => {
         return <Dashboard dashboardData={state.dashboardData} />;
       case 'scraper':
         return <ManualScraper />;
+      case 'control':
+        return <ManualControl />;
+      case 'incidents':
+        return <IncidentReporting />;
+      case 'linkmap':
+        return <LinkMap />;
       case 'alerts':
         return <AlertBrowser />;
       case 'timeline':

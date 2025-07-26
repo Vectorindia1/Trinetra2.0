@@ -1,0 +1,23 @@
+DARKWEB INTELLIGENCE INVESTIGATION SUMMARY
+==================================================
+
+Case ID: 1
+Report Generated: 2025-07-26 23:07:33 UTC
+Investigation Period: 36 days
+
+KEY STATISTICS:
+--------------------
+Total Alerts: 2520
+Sites Investigated: 732
+Unique Domains: 53
+Critical Threats: 2
+High-Risk Alerts: 269
+Medium Alerts: 401
+Low-Risk Alerts: 1843
+
+RECOMMENDATIONS:
+--------------------
+• IMMEDIATE ACTION REQUIRED - Critical threats detected
+• INCREASED MONITORING - Multiple high-risk sites identified
+• CONTINUED SURVEILLANCE - Maintain monitoring protocols
+• INTER-AGENCY COORDINATION - Share intelligence as appropriate

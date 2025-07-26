@@ -7,31 +7,42 @@ from scrapy.exceptions import NotConfigured, IgnoreRequest
 from scrapy.http import Request
 from twisted.internet.error import DNSLookupError, ConnectionRefusedError, TimeoutError
 
-# Proxy configurations for Tor (only available ports)
+# Enhanced proxy configurations with multiple fallbacks
 TOR_PROXIES = [
     "http://127.0.0.1:8118",   # Privoxy HTTP proxy for Tor - supports both HTTP and HTTPS
+    "socks5://127.0.0.1:9050",  # Primary Tor SOCKS5
+    "http://127.0.0.1:8119",   # Secondary Privoxy instance
+    "socks5://127.0.0.1:9051", # Secondary Tor SOCKS5
+    "http://127.0.0.1:8120",   # Tertiary Privoxy instance
+    "socks5://127.0.0.1:9052", # Tertiary Tor SOCKS5
 ]
 
-# SOCKS5 proxy only for HTTP .onion sites (not HTTPS)
+# Primary SOCKS5 proxy
 TOR_SOCKS5_PROXY = "socks5://127.0.0.1:9050"
 
 # Backup clearnet proxies if needed
 CLEARNET_PROXIES = [
     "http://127.0.0.1:8118",
+    "socks5://127.0.0.1:9050",
 ]
 
-# Enhanced User Agents for better bypassing
+# Comprehensive User Agents for better bypassing
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x64_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
     "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0",
+    "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Android 12; Mobile; rv:68.0) Gecko/68.0 Firefox/88.0"
 ]
 
-# Common blocking patterns to detect and handle
+# Enhanced blocking patterns with more comprehensive detection
 BLOCKING_PATTERNS = [
     r'cloudflare',
     r'ddos.*protection',
@@ -41,7 +52,19 @@ BLOCKING_PATTERNS = [
     r'captcha',
     r'security.*check',
     r'please.*wait',
-    r'suspicious.*activity'
+    r'suspicious.*activity',
+    r'robot.*check',
+    r'human.*verification',
+    r'challenge.*solve',
+    r'prove.*not.*robot',
+    r'blocked.*by.*firewall',
+    r'too.*many.*requests',
+    r'service.*temporarily.*unavailable',
+    r'recaptcha',
+    r'hcaptcha',
+    r'turnstile',
+    r'anti.*bot',
+    r'bot.*detection'
 ]
 
 # Patterns to ignore (these are not blocking patterns but technical errors)

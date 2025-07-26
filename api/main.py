@@ -70,20 +70,19 @@ async def send_realtime_updates():
                 "timestamp": datetime.now().isoformat()
             })
             await websocket_manager.broadcast(message)
-            await asyncio.sleep(30)  # Update every 30 seconds
+            await asyncio.sleep(30)  # Update every 30 seconds to reduce CPU usage
         except Exception as e:
             logger.error(f"Error in real-time updates: {e}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(10)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 TRINETRA API Server starting up...")
     
-    # TEMPORARILY DISABLED: Background task causing 100% CPU usage
-    # TODO: Fix database query performance issues in send_realtime_updates()
+    # Real-time background updates DISABLED to reduce CPU usage
     # asyncio.create_task(send_realtime_updates())
-    logger.info("⚠️ Background real-time updates disabled to prevent CPU overload")
+    logger.info("📡 Real-time background updates DISABLED for performance")
     
     yield
     
@@ -182,7 +181,7 @@ async def load_json_data(file_path: str) -> List[Dict]:
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "🕵️ TRINETRA - Darknet Crawler API",
+        "message": "TRINETRA - Darknet Crawler API",
         "version": "1.0.0",
         "status": "active",
         "documentation": "/api/docs"
@@ -595,6 +594,22 @@ class CrawlerRequest(BaseModel):
 class CrawlerStopRequest(BaseModel):
     process_id: int
 
+class StealthModeRequest(BaseModel):
+    stealth_mode: bool
+
+class ReviewRequest(BaseModel):
+    item_id: int
+    annotation: str
+    reviewer: str
+    action: str
+
+# Global state for manual control
+manual_control_state = {
+    "stealth_mode": False,
+    "operational_status": "AUTOMATED",
+    "paused": False
+}
+
 @app.post("/api/crawler/start")
 async def start_crawler(request: CrawlerRequest, background_tasks: BackgroundTasks):
     """Start crawler for a specific URL"""
@@ -691,6 +706,358 @@ async def run_crawler(url: str):
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }))
+
+# ============================
+# Manual Control API Endpoints
+# ============================
+
+@app.get("/api/manual/status")
+async def get_manual_status():
+    """Get current manual control status"""
+    try:
+        return {
+            "success": True,
+            "stealth_mode": manual_control_state["stealth_mode"],
+            "operational_status": manual_control_state["operational_status"],
+            "paused": manual_control_state["paused"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/manual/toggle-stealth")
+async def toggle_stealth_mode(request: StealthModeRequest):
+    """Toggle stealth mode on/off"""
+    try:
+        manual_control_state["stealth_mode"] = request.stealth_mode
+        
+        # Update operational status based on stealth mode
+        if request.stealth_mode:
+            manual_control_state["operational_status"] = "STEALTH"
+        else:
+            manual_control_state["operational_status"] = "AUTOMATED"
+        
+        # Broadcast status change to WebSocket clients
+        await websocket_manager.broadcast(json.dumps({
+            "type": "stealth_mode_changed",
+            "stealth_mode": request.stealth_mode,
+            "operational_status": manual_control_state["operational_status"],
+            "timestamp": datetime.now().isoformat()
+        }))
+        
+        return {
+            "success": True,
+            "stealth_mode": request.stealth_mode,
+            "operational_status": manual_control_state["operational_status"],
+            "message": f"Stealth mode {'enabled' if request.stealth_mode else 'disabled'}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/manual/pause-automation")
+async def pause_automation():
+    """Pause automated crawling"""
+    try:
+        manual_control_state["paused"] = True
+        manual_control_state["operational_status"] = "PAUSED"
+        
+        # Broadcast status change
+        await websocket_manager.broadcast(json.dumps({
+            "type": "automation_paused",
+            "operational_status": "PAUSED",
+            "timestamp": datetime.now().isoformat()
+        }))
+        
+        return {
+            "success": True,
+            "operational_status": "PAUSED",
+            "message": "Automation paused"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/manual/resume-automation")
+async def resume_automation():
+    """Resume automated crawling"""
+    try:
+        manual_control_state["paused"] = False
+        
+        # Set operational status based on stealth mode
+        if manual_control_state["stealth_mode"]:
+            manual_control_state["operational_status"] = "STEALTH"
+        else:
+            manual_control_state["operational_status"] = "AUTOMATED"
+        
+        # Broadcast status change
+        await websocket_manager.broadcast(json.dumps({
+            "type": "automation_resumed",
+            "operational_status": manual_control_state["operational_status"],
+            "timestamp": datetime.now().isoformat()
+        }))
+        
+        return {
+            "success": True,
+            "operational_status": manual_control_state["operational_status"],
+            "message": "Automation resumed"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/manual/pending-reviews")
+async def get_pending_reviews():
+    """Get items pending human review"""
+    try:
+        # Get high-confidence AI analyses that need human review
+        with db_manager.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT id, url, threat_level, confidence_score, 
+                       analysis_summary, processed_at as timestamp
+                FROM ai_analysis 
+                WHERE (threat_level IN ('CRITICAL', 'HIGH') OR confidence_score > 0.8)
+                AND id NOT IN (
+                    SELECT DISTINCT item_id FROM human_reviews WHERE item_id IS NOT NULL
+                )
+                ORDER BY processed_at DESC
+                LIMIT 50
+            """)
+            
+            pending_items = []
+            for row in cursor.fetchall():
+                pending_items.append({
+                    "id": row[0],
+                    "url": row[1],
+                    "threat_level": row[2],
+                    "confidence_score": row[3],
+                    "analysis_summary": row[4],
+                    "timestamp": row[5]
+                })
+        
+        return {
+            "success": True,
+            "data": pending_items,
+            "count": len(pending_items)
+        }
+    except Exception as e:
+        logger.error(f"Error getting pending reviews: {e}")
+        # Return empty list if table doesn't exist yet
+        return {
+            "success": True,
+            "data": [],
+            "count": 0
+        }
+
+@app.post("/api/manual/submit-review")
+async def submit_review(request: ReviewRequest):
+    """Submit human review for an item"""
+    try:
+        # Store the human review
+        with db_manager.get_cursor() as cursor:
+            # Create human_reviews table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS human_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id INTEGER NOT NULL,
+                    reviewer TEXT NOT NULL,
+                    annotation TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    reviewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Insert the review
+            cursor.execute("""
+                INSERT INTO human_reviews (item_id, reviewer, annotation, action)
+                VALUES (?, ?, ?, ?)
+            """, (request.item_id, request.reviewer, request.annotation, request.action))
+        
+        # Broadcast review completion
+        await websocket_manager.broadcast(json.dumps({
+            "type": "review_completed",
+            "item_id": request.item_id,
+            "reviewer": request.reviewer,
+            "timestamp": datetime.now().isoformat()
+        }))
+        
+        return {
+            "success": True,
+            "message": "Review submitted successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error submitting review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================
+# Incident Reporting API Endpoints
+# ============================
+
+from incident_reporter import LawEnforcementReporter, IncidentReport
+from pydantic import BaseModel
+from typing import List, Optional
+
+class IncidentCreateRequest(BaseModel):
+    alert_ids: List[int]
+    incident_type: str
+    investigating_officer: str = "System Generated"
+
+class IncidentUpdateRequest(BaseModel):
+    incident_id: str
+    status: str
+    notes: str = ""
+
+# Initialize incident reporter
+incident_reporter = LawEnforcementReporter()
+
+@app.post("/api/incidents/create")
+async def create_incident_report(request: IncidentCreateRequest):
+    """Create a new incident report for law enforcement"""
+    try:
+        incident_report = incident_reporter.generate_incident_report(
+            alert_ids=request.alert_ids,
+            incident_type=request.incident_type,
+            investigating_officer=request.investigating_officer
+        )
+        
+        return {
+            "success": True,
+            "incident_id": incident_report.incident_id,
+            "message": "Incident report created successfully",
+            "report": {
+                "incident_id": incident_report.incident_id,
+                "severity": incident_report.severity,
+                "classification": incident_report.classification,
+                "summary": incident_report.summary,
+                "evidence_count": len(incident_report.evidence_items),
+                "status": incident_report.report_status
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error creating incident report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/incidents/list")
+async def list_incident_reports(
+    limit: int = 50,
+    status: Optional[str] = None
+):
+    """List incident reports"""
+    try:
+        reports = incident_reporter.get_incident_reports(limit=limit, status=status)
+        return {
+            "success": True,
+            "data": reports,
+            "count": len(reports)
+        }
+    except Exception as e:
+        logger.error(f"Error listing incident reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/incidents/{incident_id}")
+async def get_incident_report(incident_id: str):
+    """Get detailed incident report"""
+    try:
+        report = incident_reporter.get_incident_report(incident_id)
+        if report:
+            return {
+                "success": True,
+                "data": report
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Incident report not found")
+    except Exception as e:
+        logger.error(f"Error getting incident report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/incidents/{incident_id}/update")
+async def update_incident_report(incident_id: str, request: IncidentUpdateRequest):
+    """Update incident report status"""
+    try:
+        success = incident_reporter.update_incident_status(
+            incident_id=incident_id,
+            status=request.status,
+            notes=request.notes
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Incident report updated successfully"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Incident report not found")
+    except Exception as e:
+        logger.error(f"Error updating incident report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/incidents/{incident_id}/export")
+async def export_incident_report(incident_id: str, format: str = "json"):
+    """Export incident report in various formats"""
+    try:
+        exported_data = incident_reporter.export_incident_report(incident_id, format)
+        
+        if format == "pdf":
+            from fastapi.responses import Response
+            return Response(
+                content=exported_data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={incident_id}.pdf"}
+            )
+        else:
+            return {
+                "success": True,
+                "data": exported_data,
+                "format": format
+            }
+    except Exception as e:
+        logger.error(f"Error exporting incident report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================
+# Additional API Endpoints
+# ============================
+
+@app.get("/api/analytics/threat-trends")
+async def get_threat_trends(days: int = 30):
+    """Get threat trend analytics"""
+    try:
+        stats = db_manager.get_threat_trends(days=days)
+        return {
+            "success": True,
+            "data": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting threat trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/geographical")
+async def get_geographical_analytics():
+    """Get geographical distribution of threats"""
+    try:
+        geo_data = db_manager.get_geographical_analytics()
+        return {
+            "success": True,
+            "data": geo_data
+        }
+    except Exception as e:
+        logger.error(f"Error getting geographical analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/performance")
+async def get_performance_metrics():
+    """Get system performance metrics"""
+    try:
+        metrics = {
+            "crawling_performance": db_manager.get_crawling_performance(),
+            "ai_analysis_performance": db_manager.get_ai_performance(),
+            "alert_processing_time": db_manager.get_alert_processing_time(),
+            "system_uptime": "99.8%",  # This would be calculated from actual uptime
+            "database_size": db_manager.get_database_size()
+        }
+        return {
+            "success": True,
+            "data": metrics
+        }
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

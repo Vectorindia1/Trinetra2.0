@@ -7,6 +7,8 @@ import concurrent.futures
 import random
 import time
 import requests
+import asyncio
+import websockets
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from tqdm import tqdm
@@ -15,6 +17,22 @@ from database.models import db_manager, Alert, CrawledPage
 from scrapy.exceptions import IgnoreRequest
 from scrapy.utils.response import get_base_url
 from scrapy.http import Request
+
+# Import real-time notifications
+try:
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from realtime_notifier import (
+        notify_page_scraped, 
+        notify_alert_created, 
+        notify_ai_analysis_complete, 
+        notify_links_discovered
+    )
+    REALTIME_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ Real-time notifications not available: {e}")
+    REALTIME_ENABLED = False
 
 # Import AI analysis
 try:
@@ -26,6 +44,16 @@ try:
 except ImportError as e:
     print(f"⚠️ AI module not available: {e}")
     AI_ENABLED = False
+
+# Import geolocation service
+try:
+    from geolocation_service import GeolocationService
+    # Initialize with a placeholder API key. Replace with actual key.
+    geo_service = GeolocationService(api_key="your_ipstack_api_key")
+    GEO_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ Geolocation service not available: {e}")
+    GEO_ENABLED = False
 
 # Load keywords
 with open("keyword.json") as f:
@@ -72,11 +100,16 @@ BLOCKING_PATTERNS = [
 
 crawled_pages = 0
 non_http_links = []
+chatroom_links = []
 visited_links = set(link['url'] for link in db_manager.get_crawled_pages(limit=1000000))
 failed_requests = {}
 
 # Progress bar (set arbitrary high limit since unlimited)
 progress_bar = tqdm(total=1000000, desc="🌐 Crawling Progress", unit="page")
+
+chatroom_patterns = [
+    r'(irc|xmpp|webchat|discord|telegram|signal|chatroom|channel)\.(.*)'
+]
 
 class OnionCrawler(scrapy.Spider):
     name = "onion"
@@ -136,6 +169,58 @@ class OnionCrawler(scrapy.Spider):
 
     def parse(self, response):
         global crawled_pages
+
+        # Extract chatroom links
+        detected_chatroom_links = set()
+        for link in response.css("a::attr(href)").getall():
+            if any(re.search(pattern, link.lower()) for pattern in chatroom_patterns):
+                detected_chatroom_links.add(link)
+
+        if detected_chatroom_links:
+            self.logger.info(f"🗨️ Chatroom links detected: {detected_chatroom_links}")
+            # Store chatroom links for later processing
+            for chatroom_url in detected_chatroom_links:
+                chatroom_links.append({
+                    'source_url': response.url,
+                    'chatroom_url': chatroom_url,
+                    'chatroom_type': 'detected'
+                })
+
+        # Extract emails and IPs
+        emails = re.findall(r'[\w\.-]+@[\w\.-]+', response.text)
+        ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', response.text)
+        metadata = {
+            'emails': emails,
+            'ips': ips,
+            'chatrooms': list(detected_chatroom_links)
+        }
+
+        # Log and store metadata
+        if emails or ips:
+            self.logger.info(f"📧 Emails found: {emails}")
+            self.logger.info(f"🌐 IPs found: {ips}")
+            
+            # Get geolocation for IPs if service is enabled
+            if GEO_ENABLED and ips:
+                for ip in ips:
+                    try:
+                        geo_data = geo_service.get_geolocation(ip)
+                        if geo_data:
+                            country = geo_data.get('country_name', 'Unknown')
+                            city = geo_data.get('city', 'Unknown')
+                            self.logger.info(f"🗺️ IP {ip} located in: {city}, {country}")
+                            metadata[f'geo_{ip}'] = {
+                                'country': country,
+                                'city': city,
+                                'latitude': geo_data.get('latitude'),
+                                'longitude': geo_data.get('longitude')
+                            }
+                    except Exception as e:
+                        self.logger.warning(f"Failed to get geolocation for {ip}: {e}")
+
+        # Store or send metadata to analysis pipeline
+        # (Extend functionality here)
+
         
         # ✅ Add parse() logging
         self.logger.info(f"📥 Reached parse(): {response.url}")
@@ -208,6 +293,10 @@ class OnionCrawler(scrapy.Spider):
                         
                         self.logger.info(f"🎯 AI Analysis: {ai_analysis.threat_level} threat detected with {ai_analysis.confidence_score:.2f} confidence")
                         
+                        # Broadcast real-time notification for AI analysis completion
+                        if REALTIME_ENABLED:
+                            notify_ai_analysis_complete(ai_data)
+                        
                 except Exception as e:
                     self.logger.error(f"❌ AI analysis failed for {url}: {e}")
                     ai_analysis = None
@@ -226,6 +315,16 @@ class OnionCrawler(scrapy.Spider):
                 threat_level=threat_level
             )
             db_manager.insert_alert(alert)
+            
+            # Broadcast real-time notification for alert created
+            if REALTIME_ENABLED:
+                notify_alert_created({
+                    "url": alert.url,
+                    "title": alert.title,
+                    "threat_level": threat_level,
+                    "keywords_found": matched_keywords,
+                    "timestamp": alert.timestamp
+                })
 
             # Enhanced Telegram alert with AI insights
             base_message = f"""
@@ -253,6 +352,40 @@ class OnionCrawler(scrapy.Spider):
                     base_message += f"📋 <b>Actions:</b> {', '.join(ai_analysis.recommended_actions[:2])}\n"
             
             send_telegram_alert(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, base_message)
+        
+        # Determine final threat level for graph node
+        page_threat_level = ai_analysis.threat_level if ai_analysis else self._determine_threat_level(matched_keywords)
+        
+        # Insert crawled page data
+        crawled_page = CrawledPage(
+            url=url,
+            title=page_title,
+            content_hash=content_hash,
+            timestamp=str(datetime.now()),
+            response_code=response.status,
+            processing_time=0.0,  # Could calculate this if needed
+            page_size=len(response.text),
+            links_found=len(response.css("a").getall()) if 'text/html' in response.headers.get('Content-Type', b'').decode() else 0
+        )
+        db_manager.insert_crawled_page(crawled_page)
+        
+        # Broadcast real-time notification for page scraped
+        if REALTIME_ENABLED:
+            notify_page_scraped(
+                url=url,
+                title=page_title,
+                threat_level=page_threat_level,
+                keywords=matched_keywords
+            )
+        
+        # Insert/update graph node for this page
+        db_manager.upsert_graph_node(
+            url=url,
+            title=page_title,
+            node_type='page',
+            threat_level=page_threat_level,
+            page_size=len(response.text)
+        )
 
         # Follow links concurrently
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -261,10 +394,37 @@ class OnionCrawler(scrapy.Spider):
             try:
                 # Only process HTML responses
                 if 'text/html' in response.headers.get('Content-Type', b'').decode():
-                    for href in response.css("a::attr(href)").getall():
+                    link_position = 0
+                    for link_element in response.css("a"):
+                        href = link_element.css("::attr(href)").get()
+                        if not href:
+                            continue
+                            
                         full_url = urljoin(url, href)
+                        link_text = link_element.css("::text").get() or ""  # Get link text
+                        link_text = link_text.strip()[:100]  # Limit text length
+                        
+                        # Track all link relationships for graph mapping
+                        if full_url.startswith(('http://', 'https://')):
+                            # Insert link relationship for graph mapping
+                            db_manager.insert_link_relationship(
+                                source_url=url,
+                                target_url=full_url,
+                                link_text=link_text,
+                                link_position=link_position
+                            )
+                            
+                            # Create or update target node if it's an onion link
+                            if '.onion' in full_url:
+                                db_manager.upsert_graph_node(
+                                    url=full_url,
+                                    title=link_text if link_text else "Untitled",
+                                    node_type='page',
+                                    threat_level='LOW',  # Will be updated when crawled
+                                    page_size=0
+                                )
 
-                        # Filter out unwanted domains and file types
+                        # Continue with existing crawling logic
                         if (full_url.startswith(('http://', 'https://')) and 
                             '.onion' in full_url and 
                             full_url not in visited_links and
@@ -278,6 +438,9 @@ class OnionCrawler(scrapy.Spider):
                                 "type": full_url.split(':')[0],
                                 "value": full_url
                             })
+                        
+                        link_position += 1
+                        
             except Exception as e:
                 self.logger.warning(f"Error parsing links from {url}: {e}")
             
@@ -388,5 +551,15 @@ class OnionCrawler(scrapy.Spider):
                         INSERT INTO non_http_links (source_url, link_type, link_value, discovered_at)
                         VALUES (?, ?, ?, ?)
                     """, (link['source'], link['type'], link['value'], datetime.now().isoformat()))
+
+        # Store detected chatroom links
+        if chatroom_links:
+            with db_manager.get_cursor() as cursor:
+                for chatroom in chatroom_links:
+                    cursor.execute("""
+                        INSERT INTO chatroom_links (source_url, chatroom_url, chatroom_type)
+                        VALUES (?, ?, ?)
+                    """, (chatroom['source_url'], chatroom['chatroom_url'], chatroom['chatroom_type']))
+            self.logger.info(f"🗨️ Stored {len(chatroom_links)} chatroom links for investigation")
 
         self.logger.info(f"✅ Crawl complete. {crawled_pages} pages scanned.")

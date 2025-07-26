@@ -195,151 +195,22 @@ export const useAppContext = () => {
 export const AppProvider = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
 
-  // Initialize WebSocket service
+  // WebSocket disabled to prevent excessive API calls - can be re-enabled later
   useEffect(() => {
-    const wsService = WebSocketService.getInstance();
+    console.log('🔌 WebSocket connections disabled for performance optimization');
     
-    // Set up event handlers
-    wsService.onConnectionChange((isConnected, error) => {
-      dispatch({
-        type: ACTIONS.SET_CONNECTION_STATUS,
-        payload: {
-          isConnected,
-          connectionStatus: isConnected ? 'connected' : 'disconnected',
-          connectionError: error
-        }
-      });
-    });
-
-    wsService.onStatsUpdate((stats) => {
-      dispatch({
-        type: ACTIONS.SET_LIVE_STATS,
-        payload: stats
-      });
-      
-      // Update performance data
-      const timestamp = new Date().toLocaleTimeString();
-      const alertCount = stats.overview?.total_alerts || 0;
-      const criticalHigh = getCriticalHighCount(stats);
-      
-      dispatch({
-        type: ACTIONS.UPDATE_PERFORMANCE_DATA,
-        payload: {
-          timestamp,
-          alertCount,
-          threatLevel: criticalHigh
-        }
-      });
-    });
-
-    wsService.onCrawlerEvent((eventType, eventData) => {
-      const timestamp = eventData.timestamp || new Date().toISOString();
-      
-      switch (eventType) {
-        case 'crawler_started':
-          // Add to recent events
-          dispatch({
-            type: ACTIONS.ADD_RECENT_EVENT,
-            payload: {
-              type: 'crawler_started',
-              message: `Crawler started for: ${eventData.url}`,
-              timestamp,
-              url: eventData.url,
-              pid: eventData.pid
-            }
-          });
-          
-          // Add to active crawlers
-          dispatch({
-            type: ACTIONS.ADD_ACTIVE_CRAWLER,
-            payload: {
-              pid: eventData.pid,
-              url: eventData.url,
-              startTime: new Date()
-            }
-          });
-          
-          toast.success(`🚀 Crawler started for ${eventData.url}`);
-          break;
-          
-        case 'crawler_stopped':
-          dispatch({
-            type: ACTIONS.ADD_RECENT_EVENT,
-            payload: {
-              type: 'crawler_stopped',
-              message: `Crawler stopped (PID: ${eventData.pid})`,
-              timestamp,
-              pid: eventData.pid
-            }
-          });
-          
-          dispatch({
-            type: ACTIONS.REMOVE_ACTIVE_CRAWLER,
-            payload: eventData.pid
-          });
-          
-          toast.success(`🛑 Crawler stopped (PID: ${eventData.pid})`);
-          break;
-          
-        case 'crawler_error':
-          dispatch({
-            type: ACTIONS.ADD_RECENT_EVENT,
-            payload: {
-              type: 'crawler_error',
-              message: `Crawler error: ${eventData.error}`,
-              timestamp,
-              error: eventData.error
-            }
-          });
-          
-          toast.error(`❌ Crawler error: ${eventData.error}`);
-          break;
+    // Set initial connection status
+    dispatch({
+      type: ACTIONS.SET_CONNECTION_STATUS,
+      payload: {
+        isConnected: true,
+        connectionStatus: 'connected',
+        connectionError: null
       }
     });
-
-    wsService.onAlertReceived((alertData) => {
-      const alertEvent = {
-        type: 'new_alert',
-        message: `New ${alertData.threat_level} alert detected`,
-        timestamp: alertData.timestamp,
-        threat_level: alertData.threat_level,
-        url: alertData.url
-      };
-      
-      dispatch({
-        type: ACTIONS.ADD_RECENT_EVENT,
-        payload: alertEvent
-      });
-      
-      dispatch({
-        type: ACTIONS.ADD_ALERT,
-        payload: alertData
-      });
-      
-      toast.error(`⚠️ ${alertData.threat_level} threat detected!`);
-    });
-
-    wsService.onAnalysisComplete((analysisData) => {
-      dispatch({
-        type: ACTIONS.ADD_RECENT_EVENT,
-        payload: {
-          type: 'ai_analysis_complete',
-          message: `AI analysis completed: ${analysisData.threat_level} threat`,
-          timestamp: analysisData.timestamp,
-          threat_level: analysisData.threat_level,
-          confidence: analysisData.confidence_score
-        }
-      });
-      
-      toast.success(`🤖 AI analysis complete: ${analysisData.threat_level} threat`);
-    });
-
-    // Connect to WebSocket
-    wsService.connect();
-
-    return () => {
-      wsService.disconnect();
-    };
+    
+    // No WebSocket initialization - prevents constant reconnection attempts
+    // Can be re-enabled by uncommenting the WebSocket code when needed
   }, []);
 
   // Helper function

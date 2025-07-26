@@ -6,6 +6,8 @@ class WebSocketService {
     this.crawlerEventCallbacks = [];
     this.alertReceivedCallbacks = [];
     this.analysisCompleteCallbacks = [];
+    this.pageScrapedCallbacks = [];
+    this.linksDiscoveredCallbacks = [];
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
     this.reconnectInterval = 5000;
@@ -120,6 +122,14 @@ class WebSocketService {
 
       case 'ai_analysis_complete':
         this.notifyAnalysisComplete(data);
+        break;
+        
+      case 'page_scraped':
+        this.notifyPageScraped(data);
+        break;
+        
+      case 'links_discovered':
+        this.notifyLinksDiscovered(data);
         break;
 
       default:
@@ -282,6 +292,26 @@ class WebSocketService {
     };
   }
 
+  onPageScraped(callback) {
+    this.pageScrapedCallbacks.push(callback);
+    return () => {
+      const index = this.pageScrapedCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.pageScrapedCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  onLinksDiscovered(callback) {
+    this.linksDiscoveredCallbacks.push(callback);
+    return () => {
+      const index = this.linksDiscoveredCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.linksDiscoveredCallbacks.splice(index, 1);
+      }
+    };
+  }
+
   // Notification methods
   notifyConnectionChange(isConnected, error = null) {
     this.connectionCallbacks.forEach(callback => {
@@ -329,6 +359,26 @@ class WebSocketService {
         callback(analysisData);
       } catch (err) {
         console.error('Error in analysis complete callback:', err);
+      }
+    });
+  }
+
+  notifyPageScraped(pageData) {
+    this.pageScrapedCallbacks.forEach(callback => {
+      try {
+        callback(pageData);
+      } catch (err) {
+        console.error('Error in page scraped callback:', err);
+      }
+    });
+  }
+
+  notifyLinksDiscovered(linksData) {
+    this.linksDiscoveredCallbacks.forEach(callback => {
+      try {
+        callback(linksData);
+      } catch (err) {
+        console.error('Error in links discovered callback:', err);
       }
     });
   }
